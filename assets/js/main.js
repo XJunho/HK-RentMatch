@@ -15,6 +15,7 @@ let sliderIndex = 0;
 document.addEventListener('DOMContentLoaded', function() {
     initTabNavigation();
     initSortSelect();
+    initRegisterPageRoleCards();
     restoreScrollPosition();
 });
 
@@ -185,6 +186,54 @@ function selectRole(element, role) {
     } else {
         schoolGroup.style.display = 'none';
     }
+}
+
+function initRegisterPageRoleCards() {
+    const schoolGroup = document.getElementById('schoolGroupRegister');
+    if (!schoolGroup) return;
+
+    const roleInputs = document.querySelectorAll('.role-radio-input[name="role"]');
+    if (!roleInputs.length) return;
+
+    const schoolSelect = schoolGroup.querySelector('select[name="school"]');
+
+    function syncRegisterRoleState() {
+        let currentRole = 'student';
+
+        roleInputs.forEach(input => {
+            const card = input.closest('.role-card');
+            if (!card) return;
+
+            const isChecked = input.checked;
+            card.classList.toggle('selected', isChecked);
+            if (isChecked) {
+                currentRole = input.value === 'landlord' ? 'landlord' : 'student';
+            }
+        });
+
+        const isStudent = currentRole === 'student';
+        schoolGroup.style.display = isStudent ? '' : 'none';
+
+        if (schoolSelect) {
+            schoolSelect.disabled = !isStudent;
+        }
+    }
+
+    roleInputs.forEach(input => {
+        input.addEventListener('change', syncRegisterRoleState);
+    });
+
+    document.querySelectorAll('.role-card').forEach(card => {
+        card.addEventListener('click', function() {
+            const input = card.querySelector('.role-radio-input[name="role"]');
+            if (!input) return;
+
+            input.checked = true;
+            syncRegisterRoleState();
+        });
+    });
+
+    syncRegisterRoleState();
 }
 
 function openPostModal() {
