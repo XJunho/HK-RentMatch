@@ -69,16 +69,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             redirect_profile($targetSection, 'error', '昵称需为 2-20 个字符。');
         }
-        if ($phone === '' || preg_match('/^\d{8}$/', $phone) !== 1) {
+        if (!is_valid_hk_phone($phone)) {
             if ($isAjaxRequest) {
                 header('Content-Type: application/json; charset=utf-8');
                 echo json_encode([
                     'success' => false,
-                    'message' => '电话需为 8 位香港数字。',
+                    'message' => '请输入香港 8 位电话号码（首位为 2-9）。',
                 ], JSON_UNESCAPED_UNICODE);
                 exit;
             }
-            redirect_profile($targetSection, 'error', '电话需为 8 位香港数字。');
+            redirect_profile($targetSection, 'error', '请输入香港 8 位电话号码（首位为 2-9）。');
         }
 
         $stmt = $pdo->prepare('UPDATE users SET username = :username, phone = :phone WHERE id = :id LIMIT 1');
@@ -693,7 +693,7 @@ include __DIR__ . '/includes/header.php';
 
                         <div class="form-group">
                             <label class="profile-form-label">电话号码 <span class="required">*</span></label>
-                            <input class="profile-input profile-input-editable" id="profilePhoneInput" type="tel" name="phone" maxlength="8" value="<?php echo htmlspecialchars((string) ($profileUser['phone'] ?? '')); ?>" placeholder="香港 8 位数字" required disabled>
+                            <input class="profile-input profile-input-editable" id="profilePhoneInput" type="tel" name="phone" maxlength="8" inputmode="numeric" pattern="[2-9][0-9]{7}" value="<?php echo htmlspecialchars((string) ($profileUser['phone'] ?? '')); ?>" placeholder="香港 8 位号码，如 91234567" required disabled>
                         </div>
 
                         <div class="form-group">

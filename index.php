@@ -241,14 +241,15 @@ $baseUrl   = 'index.php' . ($baseQuery !== '' ? ('?' . $baseQuery . '&') : '?');
                     <label class="filter-label">学校范围</label>
                     <select class="filter-select" id="filterSchool" name="school">
                         <option value="">全部学校</option>
-                        <option value="HKU" <?php echo $school === 'HKU' ? 'selected' : ''; ?>>香港大学</option>
-                        <option value="CUHK" <?php echo $school === 'CUHK' ? 'selected' : ''; ?>>香港中文大学</option>
-                        <option value="HKUST" <?php echo $school === 'HKUST' ? 'selected' : ''; ?>>香港科技大学</option>
-                        <option value="CityU" <?php echo $school === 'CityU' ? 'selected' : ''; ?>>香港城市大学</option>
-                        <option value="PolyU" <?php echo $school === 'PolyU' ? 'selected' : ''; ?>>香港理工大学</option>
-                        <option value="HKBU" <?php echo $school === 'HKBU' ? 'selected' : ''; ?>>香港浸会大学</option>
-                        <option value="LU" <?php echo $school === 'LU' ? 'selected' : ''; ?>>岭南大学</option>
-                        <option value="EdUHK" <?php echo $school === 'EdUHK' ? 'selected' : ''; ?>>香港教育大学</option>
+                        <?php foreach (school_option_groups() as $groupLabel => $groupOptions): ?>
+                            <optgroup label="<?php echo htmlspecialchars($groupLabel); ?>">
+                                <?php foreach ($groupOptions as $code => $label): ?>
+                                    <option value="<?php echo htmlspecialchars($code); ?>" <?php echo $school === $code ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars(school_short_name($code)); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                        <?php endforeach; ?>
                     </select>
                 </div>
 

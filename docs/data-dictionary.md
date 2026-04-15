@@ -95,7 +95,7 @@ erDiagram
 | `username`   | `VARCHAR(50)`                       | 否   | —          | 昵称 / 显示名称                               |
 | `email`      | `VARCHAR(120)`                      | 否   | —          | 登录邮箱，全局唯一                            |
 | `password`   | `VARCHAR(255)`                      | 否   | —          | 密码哈希，使用 PHP `password_hash()` 生成     |
-| `phone`      | `VARCHAR(30)`                       | 是   | NULL       | 手机号 / 联系方式（香港格式，8位）            |
+| `phone`      | `VARCHAR(30)`                       | 是   | NULL       | 手机号 / 联系方式（香港本地格式，8位，首位 2-9） |
 | `gender`     | `ENUM('male','female','other')`     | 是   | `'other'`  | 性别，见枚举说明                              |
 | `role`       | `ENUM('student','landlord','admin')`| 否   | `'student'`| 用户角色，见枚举说明                          |
 | `school`     | `VARCHAR(120)`                      | 是   | NULL       | 所属学校，例如 `CityU`、`HKU`                 |

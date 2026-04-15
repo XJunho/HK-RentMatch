@@ -10,18 +10,48 @@ function current_user(): ?array
     return $_SESSION['user'] ?? null;
 }
 
-function school_options_map(): array
+function school_option_groups(): array
 {
     return [
-        'HKU' => '香港大学 HKU',
-        'CUHK' => '香港中文大学 CUHK',
-        'HKUST' => '香港科技大学 HKUST',
-        'CityU' => '香港城市大学 CityU',
-        'PolyU' => '香港理工大学 PolyU',
-        'HKBU' => '香港浸会大学 HKBU',
-        'LU' => '岭南大学 LU',
-        'EdUHK' => '香港教育大学 EdUHK',
+        '教资会资助院校' => [
+            'HKU' => '香港大学 HKU',
+            'CUHK' => '香港中文大学 CUHK',
+            'HKUST' => '香港科技大学 HKUST',
+            'CityU' => '香港城市大学 CityU',
+            'PolyU' => '香港理工大学 PolyU',
+            'HKBU' => '香港浸会大学 HKBU',
+            'LU' => '岭南大学 LU',
+            'EdUHK' => '香港教育大学 EdUHK',
+        ],
+        '自资及其他颁授学位院校' => [
+            'HKMU' => '香港都会大学 HKMU',
+            'HKSYU' => '香港树仁大学 HKSYU',
+            'CHC' => '香港珠海学院 CHC',
+            'HSUHK' => '香港恒生大学 HSUHK',
+            'TWC' => '东华学院 TWC',
+            'SFU' => '圣方济各大学 SFU',
+            'CC' => '明德学院 CC',
+            'THEi' => '香港高等教育科技学院 THEi',
+            'NY' => '香港能仁专上学院 NY',
+            'HKCT' => '港专学院 HKCT',
+            'GCC' => '宏恩基督教学院 GCC',
+            'YCCECE' => '耀中幼教学院 YCCECE',
+            'UOWCHK' => '香港伍伦贡学院 UOWCHK',
+            'HKAPA' => '香港演艺学院 HKAPA',
+        ],
     ];
+}
+
+function school_options_map(): array
+{
+    $options = [];
+    foreach (school_option_groups() as $group) {
+        foreach ($group as $code => $label) {
+            $options[$code] = $label;
+        }
+    }
+
+    return $options;
 }
 
 function normalize_school_code(?string $school): ?string
@@ -50,6 +80,35 @@ function school_display_name(?string $school): string
 
     $map = school_options_map();
     return $map[$code] ?? $code;
+}
+
+function school_short_name(?string $school): string
+{
+    $label = trim(school_display_name($school));
+    if ($label === '') {
+        return '';
+    }
+
+    if (preg_match('/^(.+?)\s+[A-Za-z0-9]+$/u', $label, $matches) === 1) {
+        return trim((string) $matches[1]);
+    }
+
+    return $label;
+}
+
+function school_scope_options(): array
+{
+    $options = [];
+    foreach (school_options_map() as $code => $label) {
+        $options[$code] = school_short_name($code);
+    }
+
+    return $options;
+}
+
+function is_valid_hk_phone(?string $phone): bool
+{
+    return preg_match('/^[2-9]\d{7}$/', trim((string) $phone)) === 1;
 }
 
 function is_logged_in(): bool

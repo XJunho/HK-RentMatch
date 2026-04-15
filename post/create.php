@@ -520,13 +520,15 @@ include __DIR__ . '/../includes/header.php';
                     <label class="form-label">学校范围 <span class="required">*</span></label>
                     <select class="form-select" name="school_scope" id="cSchool">
                         <option value="">请选择学校</option>
-                        <?php
-                        $schools = ['香港大学','香港中文大学','香港科技大学','香港城市大学',
-                                    '香港理工大学','香港浸会大学','岭南大学','香港教育大学'];
-                        foreach ($schools as $s): ?>
-                            <option value="<?php echo htmlspecialchars($s); ?>" <?php echo $form['school_scope']===$s?'selected':''; ?>>
-                                <?php echo htmlspecialchars($s); ?>
-                            </option>
+                        <?php foreach (school_option_groups() as $groupLabel => $groupOptions): ?>
+                            <optgroup label="<?php echo htmlspecialchars($groupLabel); ?>">
+                                <?php foreach ($groupOptions as $code => $label): ?>
+                                    <?php $schoolName = school_short_name($code); ?>
+                                    <option value="<?php echo htmlspecialchars($schoolName); ?>" <?php echo $form['school_scope'] === $schoolName ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($schoolName); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </optgroup>
                         <?php endforeach; ?>
                     </select>
                 </div>

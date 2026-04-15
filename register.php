@@ -47,8 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // 电话（简单校验为 8 位数字）
-    if (!preg_match('/^[0-9]{8}$/', $phone)) {
-        $errors['phone'] = '电话号码需为 8 位数字。';
+    if (!is_valid_hk_phone($phone)) {
+        $errors['phone'] = '请输入香港 8 位电话号码（首位为 2-9）。';
     }
 
     // 密码
@@ -169,11 +169,15 @@ include __DIR__ . '/includes/header.php';
                     <option value="">请选择学校</option>
                     <?php
                     $selectedSchool = normalize_school_code($_POST['school'] ?? '');
-                    foreach (school_options_map() as $code => $label): ?>
-                        <option value="<?php echo htmlspecialchars($code); ?>"
-                            <?php echo $selectedSchool === $code ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($label); ?>
-                        </option>
+                    foreach (school_option_groups() as $groupLabel => $groupOptions): ?>
+                        <optgroup label="<?php echo htmlspecialchars($groupLabel); ?>">
+                            <?php foreach ($groupOptions as $code => $label): ?>
+                                <option value="<?php echo htmlspecialchars($code); ?>"
+                                    <?php echo $selectedSchool === $code ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($label); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </optgroup>
                     <?php endforeach; ?>
                 </select>
                 <?php if (!empty($errors['school'])): ?>
@@ -222,8 +226,8 @@ include __DIR__ . '/includes/header.php';
 
             <div class="form-group">
                 <label class="form-label">电话号码 <span class="required">*</span></label>
-                <input type="tel" class="form-input" name="phone"
-                       placeholder="香港8位数字，如98765432"
+                <input type="tel" class="form-input" name="phone" maxlength="8" inputmode="numeric" pattern="[2-9][0-9]{7}"
+                       placeholder="香港 8 位号码，如 91234567"
                        value="<?php echo htmlspecialchars($_POST['phone'] ?? ''); ?>">
                 <?php if (!empty($errors['phone'])): ?>
                     <div class="form-error"><?php echo htmlspecialchars($errors['phone']); ?></div>
