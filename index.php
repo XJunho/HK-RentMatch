@@ -426,6 +426,7 @@ include __DIR__ . '/includes/header.php';
                         data-period="<?php echo htmlspecialchars($periodLabel); ?>"
                         data-content="<?php echo htmlspecialchars($contentText); ?>"
                         data-author="<?php echo htmlspecialchars($author); ?>"
+                        data-owner-id="<?php echo (int) ($post['user_id'] ?? 0); ?>"
                         data-author-initial="<?php echo htmlspecialchars(mb_substr($author, 0, 1, 'UTF-8')); ?>"
                         data-author-role="<?php echo htmlspecialchars($authorRoleText); ?>"
                         data-created-date="<?php echo htmlspecialchars($createdDate); ?>"
@@ -745,7 +746,7 @@ include __DIR__ . '/includes/header.php';
                 <button class="btn btn-outline" id="detailFavoriteBtn" onclick="toggleFavoriteDetail(this)">
                     🤍 收藏
                 </button>
-                <button class="btn btn-primary" onclick="openModal('applyModal')">
+                <button class="btn btn-primary" id="detailPrimaryBtn" onclick="openDetailPrimaryAction()">
                     发送申请
                 </button>
             </div>

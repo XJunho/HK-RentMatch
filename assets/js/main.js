@@ -1,11 +1,15 @@
 let isLoggedIn = typeof window !== 'undefined' && typeof window.isLoggedIn !== 'undefined'
     ? window.isLoggedIn
     : false;
+let currentUserId = typeof window !== 'undefined' && Number.isInteger(Number(window.currentUserId))
+    ? Number(window.currentUserId)
+    : 0;
 let currentUserRole = typeof window !== 'undefined' && typeof window.currentUserRole === 'string'
     ? window.currentUserRole
     : '';
 let favorites = getInitialFavorites();
 let currentDetailPostId = null;
+let currentDetailOwnerId = 0;
 
 // ==================== Detail Slider State ====================
 let sliderImages = [];
@@ -428,6 +432,7 @@ function fillDetailModalFromCard(card) {
     const data = card.dataset;
     const type = data.type || 'rent';
     const isSublet = type === 'sublet';
+    currentDetailOwnerId = Number(data.ownerId || 0);
 
     setText('detailTitle', data.title || '-');
     setText('detailPrice', data.price || '0');
@@ -528,6 +533,31 @@ function fillDetailModalFromCard(card) {
         if (data.imageThumb2 && data.imageThumb2 !== data.imageThumb1 && data.imageThumb2 !== data.imageMain) imgs.push(data.imageThumb2);
     }
     initDetailSlider(imgs);
+    updateDetailPrimaryButton();
+}
+
+function isDetailOwnerPost() {
+    return !!isLoggedIn && currentUserId > 0 && currentDetailOwnerId > 0 && currentUserId === currentDetailOwnerId;
+}
+
+function updateDetailPrimaryButton() {
+    const btn = document.getElementById('detailPrimaryBtn');
+    if (!btn) return;
+    btn.textContent = isDetailOwnerPost() ? '编辑' : '发送申请';
+}
+
+function openPostEditFromDetail() {
+    if (!currentDetailPostId) return;
+    window.location.href = buildProjectUrl('/profile.php') + '?section=posts&edit_post_id=' + encodeURIComponent(String(currentDetailPostId));
+}
+
+function openDetailPrimaryAction() {
+    if (isDetailOwnerPost()) {
+        closeModal('detailModal');
+        openPostEditFromDetail();
+        return;
+    }
+    openModal('applyModal');
 }
 
 function updateDetailFavoriteButton() {

@@ -8,6 +8,7 @@ $section = isset($_GET['section']) ? trim((string) $_GET['section']) : 'profile'
 if (!in_array($section, $allowedSections, true)) {
     $section = 'profile';
 }
+$autoEditPostId = isset($_GET['edit_post_id']) ? max(0, (int) $_GET['edit_post_id']) : 0;
 
 function profile_section_url(string $section, array $extra = []): string
 {
@@ -30,6 +31,46 @@ $isAjaxRequest = $_SERVER['REQUEST_METHOD'] === 'POST'
         (isset($_GET['ajax']) && $_GET['ajax'] === '1')
         || strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest'
     );
+
+$profileRegions = ['中西区','东区','南区','湾仔区','九龙城区','观塘区','深水埗区','黄大仙区','油尖旺区','离岛区','葵青区','北区','西贡区','沙田区','大埔区','荃湾区','屯门区','元朗区'];
+$profileRegionMetroMap = [
+    '中西区'   => ['坚尼地城','香港大学','西营盘','上环','中环','香港'],
+    '东区'     => ['北角','鲗鱼涌','太古','西湾河','筲箕湾','杏花邨','柴湾'],
+    '南区'     => ['海洋公园','黄竹坑','利东','海怡半岛'],
+    '湾仔区'   => ['金钟','会展','湾仔','铜锣湾','天后'],
+    '九龙城区' => ['红磡','黄埔','何文田','九龙塘','土瓜湾','宋皇台','启德'],
+    '观塘区'   => ['彩虹','九龙湾','牛头角','观塘','蓝田','油塘','调景岭'],
+    '深水埗区' => ['石硖尾','深水埗','长沙湾','荔枝角','美孚','南昌'],
+    '黄大仙区' => ['乐富','黄大仙','钻石山','彩虹'],
+    '油尖旺区' => ['旺角东','旺角','太子','油麻地','佐敦','尖沙咀','尖东','柯士甸','奥运','九龙'],
+    '离岛区'   => ['东涌','欣澳','机场','博览馆','迪士尼'],
+    '葵青区'   => ['葵兴','葵芳','荔景','青衣'],
+    '北区'     => ['粉岭','上水','落马洲','罗湖'],
+    '西贡区'   => ['将军澳','坑口','宝琳','康城'],
+    '沙田区'   => ['大围','沙田','火炭','马场','大学','车公庙','沙田围','第一城','石门','大水坑','恒安','马鞍山','乌溪沙','显径'],
+    '大埔区'   => ['大埔墟','太和'],
+    '荃湾区'   => ['荃湾','大窝口','荃湾西'],
+    '屯门区'   => ['屯门','兆康'],
+    '元朗区'   => ['天水围','朗屏','元朗','锦上路'],
+];
+$profileSchoolOptions = array_values(school_scope_options());
+
+function profile_normalize_string_array($raw): array
+{
+    if (!is_array($raw)) {
+        return [];
+    }
+
+    $values = [];
+    foreach ($raw as $item) {
+        $value = trim((string) $item);
+        if ($value !== '') {
+            $values[$value] = true;
+        }
+    }
+
+    return array_keys($values);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
@@ -188,6 +229,289 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         redirect_profile($targetSection, 'success', '帖子已删除。', [
             'posts_filter' => $postsFilterPost,
+        ]);
+    }
+
+    if ($action === 'post_get_edit_data') {
+        $postId = (int) ($_POST['post_id'] ?? 0);
+        if ($postId <= 0) {
+            if ($isAjaxRequest) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'success' => false,
+                    'message' => '帖子参数无效。',
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            redirect_profile($targetSection, 'error', '帖子参数无效。');
+        }
+
+        $stmt = $pdo->prepare(
+            "SELECT
+                id, user_id, type, title, content, price, floor, rent_period, region, school_scope, metro_stations,
+                gender_requirement, need_count, remaining_months, move_in_date, renewable, status
+             FROM posts
+             WHERE id = :post_id AND user_id = :user_id AND status <> 'deleted'
+             LIMIT 1"
+        );
+        $stmt->execute([
+            ':post_id' => $postId,
+            ':user_id' => $currentUserId,
+        ]);
+        $postRow = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$postRow) {
+            if ($isAjaxRequest) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'success' => false,
+                    'message' => '未找到可编辑的帖子。',
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            redirect_profile($targetSection, 'error', '未找到可编辑的帖子。');
+        }
+
+        $schools = array_values(array_filter(array_map('trim', explode(',', (string) ($postRow['school_scope'] ?? '')))));
+        $metros = array_values(array_filter(array_map('trim', explode(',', (string) ($postRow['metro_stations'] ?? '')))));
+
+        if ($isAjaxRequest) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => true,
+                'data' => [
+                    'id' => (int) $postRow['id'],
+                    'type' => (string) ($postRow['type'] ?? ''),
+                    'title' => (string) ($postRow['title'] ?? ''),
+                    'content' => (string) ($postRow['content'] ?? ''),
+                    'price' => (string) ($postRow['price'] ?? ''),
+                    'floor' => (string) ($postRow['floor'] ?? ''),
+                    'rent_period' => (string) ($postRow['rent_period'] ?? ''),
+                    'region' => (string) ($postRow['region'] ?? ''),
+                    'schools' => $schools,
+                    'metros' => $metros,
+                    'gender_requirement' => (string) ($postRow['gender_requirement'] ?? ''),
+                    'need_count' => (string) ($postRow['need_count'] ?? ''),
+                    'remaining_months' => (string) ($postRow['remaining_months'] ?? ''),
+                    'move_in_date' => (string) ($postRow['move_in_date'] ?? ''),
+                    'renewable' => (string) ($postRow['renewable'] ?? ''),
+                ],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
+    if ($action === 'post_update') {
+        $postId = (int) ($_POST['post_id'] ?? 0);
+        if ($postId <= 0) {
+            if ($isAjaxRequest) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'success' => false,
+                    'message' => '帖子参数无效。',
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            redirect_profile($targetSection, 'error', '帖子参数无效。');
+        }
+
+        $postStmt = $pdo->prepare(
+            "SELECT id, type
+             FROM posts
+             WHERE id = :post_id AND user_id = :user_id AND status <> 'deleted'
+             LIMIT 1"
+        );
+        $postStmt->execute([
+            ':post_id' => $postId,
+            ':user_id' => $currentUserId,
+        ]);
+        $existingPost = $postStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$existingPost) {
+            if ($isAjaxRequest) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'success' => false,
+                    'message' => '未找到可编辑的帖子。',
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            redirect_profile($targetSection, 'error', '未找到可编辑的帖子。');
+        }
+
+        $postType = (string) ($existingPost['type'] ?? '');
+        $title = trim((string) ($_POST['title'] ?? ''));
+        $price = trim((string) ($_POST['price'] ?? ''));
+        $floor = trim((string) ($_POST['floor'] ?? ''));
+        $rentPeriod = trim((string) ($_POST['rent_period'] ?? ''));
+        $region = trim((string) ($_POST['region'] ?? ''));
+        $metroStations = trim((string) ($_POST['metro_stations'] ?? ''));
+        $genderRequirement = trim((string) ($_POST['gender_requirement'] ?? ''));
+        $needCount = trim((string) ($_POST['need_count'] ?? ''));
+        $remainingMonths = trim((string) ($_POST['remaining_months'] ?? ''));
+        $moveInDate = trim((string) ($_POST['move_in_date'] ?? ''));
+        $renewable = trim((string) ($_POST['renewable'] ?? ''));
+        $content = trim((string) ($_POST['content'] ?? ''));
+        $selectedSchools = profile_normalize_string_array($_POST['school_scope'] ?? []);
+        $schoolScope = implode(', ', $selectedSchools);
+        $errors = [];
+
+        if ($title === '' || mb_strlen($title, 'UTF-8') < 5 || mb_strlen($title, 'UTF-8') > 50) {
+            $errors[] = '标题需为 5-50 个字符。';
+        }
+
+        $maxPrice = ($postType === 'roommate-nosource') ? 50000 : 100000;
+        if ($price === '' || !is_numeric($price) || (float) $price < 1000 || (float) $price > $maxPrice) {
+            $errors[] = '价格需在 1000-' . $maxPrice . ' 之间。';
+        }
+
+        if (in_array($postType, ['rent', 'roommate-source', 'sublet'], true) && $floor === '') {
+            $errors[] = '请填写楼层信息。';
+        }
+
+        if ($postType !== 'sublet' && !in_array($rentPeriod, ['short', 'medium', 'long'], true)) {
+            $errors[] = '请选择租期。';
+        }
+
+        if (in_array($postType, ['roommate-source', 'roommate-nosource', 'sublet'], true)
+            && !in_array($genderRequirement, ['male', 'female', 'any'], true)) {
+            $errors[] = '请选择性别要求。';
+        }
+
+        if ($postType === 'roommate-source') {
+            $needCountInt = (int) $needCount;
+            if ($needCount === '' || $needCountInt < 1 || $needCountInt > 10) {
+                $errors[] = '需求人数需在 1-10 之间。';
+            }
+        }
+
+        if ($postType === 'sublet') {
+            $remainingMonthsInt = (int) $remainingMonths;
+            if ($remainingMonths === '' || $remainingMonthsInt < 1 || $remainingMonthsInt > 36) {
+                $errors[] = '租期剩余需在 1-36 个月之间。';
+            }
+            if ($moveInDate === '') {
+                $errors[] = '请选择最早入住日期。';
+            } else {
+                $moveInTs = strtotime($moveInDate);
+                $todayTs = strtotime(date('Y-m-d'));
+                if ($moveInTs === false || $moveInTs < $todayTs) {
+                    $errors[] = '最早入住日期不能早于今天。';
+                }
+            }
+            if ($renewable !== '' && !in_array($renewable, ['yes', 'no'], true)) {
+                $errors[] = '可续租字段值无效。';
+            }
+        }
+
+        if ($region === '' || !in_array($region, $profileRegions, true)) {
+            $errors[] = '请选择所属区域。';
+        }
+
+        if ($selectedSchools === []) {
+            $errors[] = '请选择学校范围。';
+        } else {
+            foreach ($selectedSchools as $schoolItem) {
+                if (!in_array($schoolItem, $profileSchoolOptions, true)) {
+                    $errors[] = '学校范围中包含无效选项。';
+                    break;
+                }
+            }
+        }
+
+        $metroArray = array_values(array_filter(array_map('trim', explode(',', $metroStations))));
+        if ($metroArray === []) {
+            $errors[] = '请选择至少一个地铁站。';
+        } elseif (count($metroArray) > 5) {
+            $errors[] = '最多可选择 5 个地铁站。';
+        } else {
+            $allowedMetros = $profileRegionMetroMap[$region] ?? [];
+            foreach ($metroArray as $metroName) {
+                if (!in_array($metroName, $allowedMetros, true)) {
+                    $errors[] = '所选地铁站与所属区域不匹配。';
+                    break;
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            if ($isAjaxRequest) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'success' => false,
+                    'message' => $errors[0],
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            redirect_profile($targetSection, 'error', $errors[0]);
+        }
+
+        $rentPeriodForDb = $rentPeriod;
+        if ($postType === 'sublet') {
+            $remainingMonthsForPeriod = (int) $remainingMonths;
+            if ($remainingMonthsForPeriod <= 6) {
+                $rentPeriodForDb = 'short';
+            } elseif ($remainingMonthsForPeriod <= 12) {
+                $rentPeriodForDb = 'medium';
+            } else {
+                $rentPeriodForDb = 'long';
+            }
+        }
+
+        $updateStmt = $pdo->prepare(
+            "UPDATE posts
+             SET title = :title,
+                 content = :content,
+                 price = :price,
+                 floor = :floor,
+                 rent_period = :rent_period,
+                 region = :region,
+                 school_scope = :school_scope,
+                 metro_stations = :metro_stations,
+                 gender_requirement = :gender_requirement,
+                 need_count = :need_count,
+                 remaining_months = :remaining_months,
+                 move_in_date = :move_in_date,
+                 renewable = :renewable
+             WHERE id = :post_id AND user_id = :user_id AND status <> 'deleted'
+             LIMIT 1"
+        );
+        $updateStmt->execute([
+            ':title' => $title,
+            ':content' => $content,
+            ':price' => (float) $price,
+            ':floor' => ($postType === 'roommate-nosource') ? null : $floor,
+            ':rent_period' => $rentPeriodForDb,
+            ':region' => $region,
+            ':school_scope' => $schoolScope,
+            ':metro_stations' => implode(', ', $metroArray),
+            ':gender_requirement' => in_array($postType, ['roommate-source', 'roommate-nosource', 'sublet'], true) ? $genderRequirement : null,
+            ':need_count' => $postType === 'roommate-source' ? (int) $needCount : null,
+            ':remaining_months' => $postType === 'sublet' ? (int) $remainingMonths : null,
+            ':move_in_date' => $postType === 'sublet' ? $moveInDate : null,
+            ':renewable' => $postType === 'sublet' && $renewable !== '' ? $renewable : null,
+            ':post_id' => $postId,
+            ':user_id' => $currentUserId,
+        ]);
+
+        if ($isAjaxRequest) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => true,
+                'message' => '帖子已更新。',
+                'data' => [
+                    'post_id' => $postId,
+                    'title' => $title,
+                    'price' => number_format((float) $price, 0),
+                    'region' => $region,
+                    'metro_stations' => implode(', ', $metroArray),
+                    'school_scope' => $schoolScope,
+                ],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        redirect_profile($targetSection, 'success', '帖子已更新。', [
+            'posts_filter' => $postsFilterPost,
+            'notice_mode' => 'toast',
         ]);
     }
 
@@ -358,7 +682,8 @@ $stats = $statsStmt->fetch() ?: [
 ];
 
 $myPostsStmt = $pdo->prepare(
-    "SELECT id, title, type, price, status, region, metro_stations, school_scope, images, created_at
+    "SELECT id, title, type, content, price, floor, rent_period, status, region, metro_stations, school_scope,
+            gender_requirement, need_count, remaining_months, move_in_date, renewable, images, created_at
      FROM posts
      WHERE user_id = :uid AND status <> 'deleted'
      ORDER BY created_at DESC"
@@ -512,6 +837,7 @@ $receivedApplicationsStmt = $pdo->prepare(
         p.title AS post_title,
         p.type AS post_type,
         applicant.username AS applicant_name,
+        applicant.gender AS applicant_gender,
         applicant.school AS applicant_school,
         applicant.phone AS applicant_phone
      FROM applications a
@@ -770,9 +1096,9 @@ include __DIR__ . '/includes/header.php';
                                     </div>
 
                                     <div class="my-post-actions">
-                                        <a class="btn btn-outline btn-small icon-only-btn" href="<?php echo htmlspecialchars(project_base_url('post/edit.php?id=' . (int) $post['id'])); ?>" title="编辑" aria-label="编辑">
+                                        <button class="btn btn-outline btn-small icon-only-btn js-post-edit-btn" type="button" data-post-id="<?php echo (int) $post['id']; ?>" title="编辑" aria-label="编辑">
                                             <span class="icon-feather" style="--icon-url:url('<?php echo htmlspecialchars(project_base_url('feather/edit.svg')); ?>');"></span>
-                                        </a>
+                                        </button>
                                         <form method="post" class="js-post-status-form">
                                             <input type="hidden" name="action" value="post_set_status">
                                             <input type="hidden" name="section" value="posts">
@@ -783,7 +1109,7 @@ include __DIR__ . '/includes/header.php';
                                                 <span class="icon-feather js-post-status-icon" style="--icon-url:url('<?php echo htmlspecialchars(project_base_url($postStatus === 'active' ? 'feather/eye-off.svg' : 'feather/eye.svg')); ?>');"></span>
                                             </button>
                                         </form>
-                                        <form method="post" class="js-post-delete-form" onsubmit="return confirm('确认删除该帖子？');">
+                                        <form method="post" class="js-post-delete-form">
                                             <input type="hidden" name="action" value="post_delete">
                                             <input type="hidden" name="section" value="posts">
                                             <input type="hidden" name="posts_filter" value="<?php echo htmlspecialchars($postsFilter); ?>">
@@ -845,7 +1171,7 @@ include __DIR__ . '/includes/header.php';
                                                 <input type="hidden" name="section" value="favorites">
                                                 <input type="hidden" name="favorites_filter" value="<?php echo htmlspecialchars($favoritesFilter); ?>">
                                                 <input type="hidden" name="post_id" value="<?php echo (int) $fav['post_id']; ?>">
-                                                <button class="btn btn-outline btn-small btn-danger-outline" type="submit">取消收藏</button>
+                                                <button class="btn btn-outline btn-small btn-danger-outline" type="button" onclick="confirmUnfavorite(this);">取消收藏</button>
                                             </form>
                                         </div>
                                     </div>
@@ -908,12 +1234,12 @@ include __DIR__ . '/includes/header.php';
                                         <span class="app-card-time">🕐 <?php echo htmlspecialchars(!empty($app['created_at']) ? date('Y-m-d H:i', strtotime((string) $app['created_at'])) : '-'); ?></span>
                                         <div class="app-card-actions">
                                             <?php if ($appStatus === 'pending'): ?>
-                                                <form method="post" onsubmit="return confirm('确认撤回该申请？');">
+                                                <form method="post">
                                                     <input type="hidden" name="action" value="application_withdraw">
                                                     <input type="hidden" name="section" value="applications">
                                                     <input type="hidden" name="applications_filter" value="<?php echo htmlspecialchars($applicationsFilter); ?>">
                                                     <input type="hidden" name="application_id" value="<?php echo (int) $app['id']; ?>">
-                                                    <button class="btn btn-outline btn-small" type="submit">↩️ 撤回</button>
+                                                    <button class="btn btn-outline btn-small" type="button" onclick="confirmWithdraw(this);">↩️ 撤回</button>
                                                 </form>
                                             <?php endif; ?>
                                             <a class="btn btn-outline btn-small" href="<?php echo htmlspecialchars(project_base_url('post/detail.php?id=' . (int) $app['post_id'])); ?>" onclick="event.preventDefault(); openProfilePostDetail(<?php echo (int) $app['post_id']; ?>);">查看帖子</a>
@@ -953,6 +1279,7 @@ include __DIR__ . '/includes/header.php';
                                 ];
                                 $rBadge = $receivedBadgeMap[$received['post_type'] ?? 'rent'] ?? $receivedBadgeMap['rent'];
                                 $applicantSchoolText = school_display_name($received['applicant_school'] ?? null);
+                                $applicantGenderText = $genderTextMap[$received['applicant_gender'] ?? 'other'] ?? '其他';
                                 ?>
                                 <div class="received-card" data-applicant-phone="<?php echo htmlspecialchars((string) ($received['applicant_phone'] ?? '')); ?>">
                                     <div class="received-header">
@@ -960,9 +1287,12 @@ include __DIR__ . '/includes/header.php';
                                             <div class="received-applicant-avatar"><?php echo htmlspecialchars(mb_substr((string) $received['applicant_name'], 0, 1, 'UTF-8')); ?></div>
                                             <div>
                                                 <div class="received-applicant-name"><?php echo htmlspecialchars((string) $received['applicant_name']); ?></div>
-                                                <?php if ($applicantSchoolText !== ''): ?>
-                                                    <div class="received-applicant-school">🎓 <?php echo htmlspecialchars($applicantSchoolText); ?></div>
-                                                <?php endif; ?>
+                                                <div class="received-applicant-meta">
+                                                    <span class="received-applicant-school">👤 <?php echo htmlspecialchars($applicantGenderText); ?></span>
+                                                    <?php if ($applicantSchoolText !== ''): ?>
+                                                        <span class="received-applicant-school">🎓 <?php echo htmlspecialchars($applicantSchoolText); ?></span>
+                                                    <?php endif; ?>
+                                                </div>
                                             </div>
                                         </div>
                                         <span class="app-status <?php echo htmlspecialchars($receivedStatusCls); ?>"><?php echo htmlspecialchars($applicationStatusMap[$receivedStatus] ?? $receivedStatus); ?></span>
@@ -1018,6 +1348,157 @@ include __DIR__ . '/includes/header.php';
         </section>
     </div>
 </main>
+
+<div class="modal-overlay" id="sharedConfirmModal">
+    <div class="modal" style="max-width:380px;">
+        <div class="modal-header">
+            <h2 class="modal-title" id="sharedConfirmTitle" style="font-size:16px;"></h2>
+            <button class="modal-close" type="button" onclick="closeSharedConfirm()">×</button>
+        </div>
+        <div style="padding:24px;">
+            <p id="sharedConfirmMsg" style="margin:0 0 24px;color:var(--text-main);"></p>
+            <div style="display:flex;justify-content:flex-end;gap:12px;">
+                <button class="btn btn-outline btn-small" type="button" onclick="closeSharedConfirm()">取消</button>
+                <button class="btn btn-small" type="button" id="sharedConfirmBtn" onclick="execSharedConfirm()">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="postEditModal">
+    <div class="modal" style="max-width:860px;width:92%;max-height:90vh;overflow:auto;">
+        <div class="modal-header">
+            <h2 class="modal-title">编辑帖子</h2>
+            <button class="modal-close" type="button" onclick="closeModal('postEditModal')">×</button>
+        </div>
+        <form id="postEditForm" method="post" class="post-edit-form">
+            <input type="hidden" name="action" value="post_update">
+            <input type="hidden" name="section" value="posts">
+            <input type="hidden" name="posts_filter" value="<?php echo htmlspecialchars($postsFilter); ?>">
+            <input type="hidden" name="post_id" id="editPostId" value="">
+            <input type="hidden" name="metro_stations" id="editMetroStations" value="">
+
+            <div class="post-edit-grid">
+                <div class="form-group">
+                    <label class="profile-form-label">帖子类型</label>
+                    <input type="text" class="profile-input" id="editTypeLabel" value="" disabled>
+                </div>
+                <div class="form-group">
+                    <label class="profile-form-label">标题 <span class="required">*</span></label>
+                    <input type="text" class="profile-input" name="title" id="editTitle" maxlength="50" required>
+                </div>
+                <div class="form-group">
+                    <label class="profile-form-label">价格（HKD） <span class="required">*</span></label>
+                    <input type="number" class="profile-input" name="price" id="editPrice" min="1000" step="100" required>
+                </div>
+                <div class="form-group" id="editFloorWrap">
+                    <label class="profile-form-label">楼层 <span class="required">*</span></label>
+                    <input type="text" class="profile-input" name="floor" id="editFloor" placeholder="如 15/F、高层">
+                </div>
+                <div class="form-group" id="editRentPeriodWrap">
+                    <label class="profile-form-label">租期 <span class="required">*</span></label>
+                    <select class="profile-input profile-select" name="rent_period" id="editRentPeriod">
+                        <option value="">请选择</option>
+                        <option value="short">6个月以下</option>
+                        <option value="medium">6个月至1年</option>
+                        <option value="long">1年及以上</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="profile-form-label">所属区域 <span class="required">*</span></label>
+                    <select class="profile-input profile-select" name="region" id="editRegion">
+                        <option value="">请选择区域</option>
+                        <?php foreach ($profileRegions as $regionOpt): ?>
+                            <option value="<?php echo htmlspecialchars($regionOpt); ?>"><?php echo htmlspecialchars($regionOpt); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="profile-form-label">学校范围 <span class="required">*</span></label>
+                    <div class="metro-select" id="editSchoolSelect">
+                        <div class="metro-trigger" onclick="profileToggleEditSchoolDropdown()">
+                            <div class="metro-tags-wrap" id="editSchoolTags">
+                                <span class="metro-placeholder">点击选择学校范围</span>
+                            </div>
+                            <span style="color:var(--text-hint);font-size:12px;">▼</span>
+                        </div>
+                        <div class="metro-dropdown" id="editSchoolDropdown">
+                            <div style="padding:8px 12px;border-bottom:1px solid #eee;">
+                                <input type="text" id="editSchoolSearch" placeholder="搜索学校..." style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;outline:none;" oninput="profileFilterEditSchoolOptions()">
+                            </div>
+                            <div style="max-height:220px;overflow-y:auto;padding:4px 0;" id="editSchoolOptionList">
+                                <?php foreach ($profileSchoolOptions as $schoolOpt): ?>
+                                    <div class="metro-option" onclick="profileToggleEditSchoolOption(this)" data-name="<?php echo htmlspecialchars($schoolOpt); ?>">
+                                        <div class="metro-option-check"></div>
+                                        🎓 <?php echo htmlspecialchars($schoolOpt); ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="editSchoolInputs"></div>
+                </div>
+                <div class="form-group">
+                    <label class="profile-form-label">附近地铁站 <span class="required">*</span></label>
+                    <div class="metro-select" id="editMetroSelectWrap">
+                        <div class="metro-trigger" onclick="profileToggleEditMetroDropdown()">
+                            <div class="metro-tags-wrap" id="editMetroTags">
+                                <span class="metro-placeholder">点击选择地铁站</span>
+                            </div>
+                            <span style="color:var(--text-hint);font-size:12px;">▼</span>
+                        </div>
+                        <div class="metro-dropdown" id="editMetroDropdown">
+                            <div style="padding:8px 12px;border-bottom:1px solid #eee;">
+                                <input type="text" id="editMetroSearch" placeholder="搜索地铁站..." style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;outline:none;" oninput="profileFilterEditMetroOptions()">
+                            </div>
+                            <div id="editMetroLineFilters" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-bottom:1px solid #eee;"></div>
+                            <div style="max-height:220px;overflow-y:auto;padding:4px 0;" id="editMetroOptionList">
+                                <div class="metro-empty-state" style="padding:12px 16px;color:var(--text-hint);">请先选择所属区域</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group" id="editGenderWrap">
+                    <label class="profile-form-label">性别要求 <span class="required">*</span></label>
+                    <select class="profile-input profile-select" name="gender_requirement" id="editGenderRequirement">
+                        <option value="">请选择</option>
+                        <option value="male">男</option>
+                        <option value="female">女</option>
+                        <option value="any">不限</option>
+                    </select>
+                </div>
+                <div class="form-group" id="editNeedCountWrap">
+                    <label class="profile-form-label">需求人数 <span class="required">*</span></label>
+                    <input type="number" class="profile-input" name="need_count" id="editNeedCount" min="1" max="10">
+                </div>
+                <div class="form-group" id="editRemainingMonthsWrap">
+                    <label class="profile-form-label">剩余租期（月） <span class="required">*</span></label>
+                    <input type="number" class="profile-input" name="remaining_months" id="editRemainingMonths" min="1" max="36">
+                </div>
+                <div class="form-group" id="editMoveInDateWrap">
+                    <label class="profile-form-label">最早入住日期 <span class="required">*</span></label>
+                    <input type="date" class="profile-input" name="move_in_date" id="editMoveInDate">
+                </div>
+                <div class="form-group" id="editRenewableWrap">
+                    <label class="profile-form-label">是否可续租</label>
+                    <select class="profile-input profile-select" name="renewable" id="editRenewable">
+                        <option value="">请选择</option>
+                        <option value="yes">可续租</option>
+                        <option value="no">不可续租</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group" style="margin-top:8px;">
+                <label class="profile-form-label">其他信息</label>
+                <textarea class="profile-input" name="content" id="editContent" rows="4" maxlength="100" style="height:auto;resize:vertical;"></textarea>
+            </div>
+            <div class="profile-actions active" style="margin-top:12px;">
+                <button type="button" class="btn btn-outline" onclick="closeModal('postEditModal')">取消</button>
+                <button type="submit" class="btn btn-primary" id="postEditSaveBtn">保存修改</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <div class="modal-overlay" id="profileDetailModal">
     <div class="modal detail-modal">
@@ -1152,6 +1633,377 @@ function profileSliderNext() {
         profileDetailIndex++;
         profileRenderSlider();
     }
+}
+
+let _sharedConfirmCallback = null;
+function openConfirmModal(options) {
+    const titleEl = document.getElementById('sharedConfirmTitle');
+    const msgEl = document.getElementById('sharedConfirmMsg');
+    const btn = document.getElementById('sharedConfirmBtn');
+    if (titleEl) titleEl.textContent = options.title || '确认';
+    if (msgEl) msgEl.textContent = options.message || '';
+    if (btn) {
+        const isDanger = options.danger !== false;
+        btn.style.background = isDanger ? 'var(--danger)' : 'var(--primary)';
+        btn.style.borderColor = isDanger ? 'var(--danger)' : 'var(--primary)';
+        btn.style.color = '#fff';
+    }
+    _sharedConfirmCallback = options.onConfirm || null;
+    const el = document.getElementById('sharedConfirmModal');
+    if (el) {
+        el.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+}
+function closeSharedConfirm() {
+    closeModal('sharedConfirmModal');
+    _sharedConfirmCallback = null;
+}
+function execSharedConfirm() {
+    closeModal('sharedConfirmModal');
+    if (_sharedConfirmCallback) {
+        _sharedConfirmCallback();
+        _sharedConfirmCallback = null;
+    }
+}
+
+function confirmUnfavorite(btn) {
+    const form = btn && btn.closest ? btn.closest('form') : null;
+    if (!form) return;
+    openConfirmModal({
+        title: '取消收藏',
+        message: '确定要取消收藏该帖子吗？',
+        onConfirm: function() { form.submit(); }
+    });
+}
+
+function confirmWithdraw(btn) {
+    const form = btn && btn.closest ? btn.closest('form') : null;
+    if (!form) return;
+    openConfirmModal({
+        title: '撤回申请',
+        message: '确定要撤回该申请吗？',
+        onConfirm: function() { form.submit(); }
+    });
+}
+
+const PROFILE_EDIT_TYPE_LABEL_MAP = {
+    'rent': '🏠 租房',
+    'roommate-source': '🏘️ 有房找室友',
+    'roommate-nosource': '🔍 无房找室友',
+    'sublet': '🔄 转租'
+};
+const PROFILE_REGION_METRO_MAP = <?php echo json_encode($profileRegionMetroMap, JSON_UNESCAPED_UNICODE); ?>;
+const PROFILE_METRO_LINE_STATIONS = {
+    '东铁线': ['金钟','会展','红磡','旺角东','九龙塘','大围','沙田','火炭','马场','大学','大埔墟','太和','粉岭','上水','落马洲','罗湖'],
+    '观塘线': ['黄埔','何文田','油麻地','旺角','太子','石硖尾','九龙塘','乐富','黄大仙','钻石山','彩虹','九龙湾','牛头角','观塘','蓝田','油塘','调景岭'],
+    '港岛线': ['坚尼地城','香港大学','西营盘','上环','中环','金钟','湾仔','铜锣湾','天后','炮台山','北角','鲗鱼涌','太古','西湾河','筲箕湾','杏花邨','柴湾'],
+    '荃湾线': ['荃湾','大窝口','葵兴','葵芳','荔景','美孚','荔枝角','长沙湾','深水埗','太子','旺角','油麻地','佐敦','尖沙咀','金钟','中环'],
+    '屯马线': ['屯门','兆康','天水围','朗屏','元朗','锦上路','荃湾西','美孚','南昌','柯士甸','尖东','红磡','何文田','土瓜湾','宋皇台','启德','钻石山','显径','大围','车公庙','沙田围','第一城','石门','大水坑','恒安','马鞍山','乌溪沙'],
+    '东涌线': ['香港','九龙','奥运','南昌','荔景','青衣','欣澳','东涌'],
+    '将军澳线': ['北角','鲗鱼涌','油塘','调景岭','将军澳','坑口','宝琳','康城'],
+    '南港岛线': ['金钟','海洋公园','黄竹坑','利东','海怡半岛'],
+    '机场快线': ['博览馆','机场','青衣','九龙','香港'],
+    '迪士尼线': ['迪士尼'],
+};
+const PROFILE_METRO_LINE_COLORS = {
+    '东铁线': '#5EB6E4',
+    '观塘线': '#00A040',
+    '港岛线': '#0072CE',
+    '荃湾线': '#E2231A',
+    '屯马线': '#8B5A2B',
+    '东涌线': '#F28C28',
+    '将军澳线': '#7E3F98',
+    '南港岛线': '#B5BD00',
+    '机场快线': '#00888A',
+    '迪士尼线': '#E894C6',
+};
+let currentEditingPostType = 'rent';
+let profileEditSelectedSchools = [];
+let profileEditSelectedMetros = [];
+let profileEditActiveMetroLine = 'all';
+
+function profileEscapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text || '');
+    return div.innerHTML;
+}
+
+function profileSyncEditSchoolHiddenInputs() {
+    const wrap = document.getElementById('editSchoolInputs');
+    if (!wrap) return;
+    wrap.innerHTML = profileEditSelectedSchools.map(function(name) {
+        return '<input type="hidden" name="school_scope[]" value="' + profileEscapeHtml(name) + '">';
+    }).join('');
+}
+
+function profileRenderEditSchoolTags() {
+    const container = document.getElementById('editSchoolTags');
+    if (!container) return;
+    if (profileEditSelectedSchools.length === 0) {
+        container.innerHTML = '<span class="metro-placeholder">点击选择学校范围</span>';
+        return;
+    }
+    container.innerHTML = profileEditSelectedSchools.map(function(name, index) {
+        return '<span class="metro-tag">🎓 ' + profileEscapeHtml(name)
+            + ' <span class="metro-tag-x" onclick="event.stopPropagation();profileRemoveEditSchool(' + String(index) + ')">×</span></span>';
+    }).join('');
+}
+
+function profileSyncEditSchoolOptionStates() {
+    document.querySelectorAll('#editSchoolOptionList .metro-option').forEach(function(option) {
+        const name = String(option.dataset.name || '').trim();
+        option.classList.toggle('selected', profileEditSelectedSchools.includes(name));
+    });
+}
+
+function profileToggleEditSchoolDropdown() {
+    const dropdown = document.getElementById('editSchoolDropdown');
+    if (!dropdown) return;
+    dropdown.classList.toggle('open');
+}
+
+function profileToggleEditSchoolOption(el) {
+    const name = String(el.dataset.name || '').trim();
+    if (name === '') return;
+    if (profileEditSelectedSchools.includes(name)) {
+        profileEditSelectedSchools = profileEditSelectedSchools.filter(function(item) { return item !== name; });
+    } else {
+        profileEditSelectedSchools.push(name);
+    }
+    profileSyncEditSchoolOptionStates();
+    profileRenderEditSchoolTags();
+    profileSyncEditSchoolHiddenInputs();
+}
+
+function profileRemoveEditSchool(index) {
+    if (index < 0 || index >= profileEditSelectedSchools.length) return;
+    profileEditSelectedSchools.splice(index, 1);
+    profileSyncEditSchoolOptionStates();
+    profileRenderEditSchoolTags();
+    profileSyncEditSchoolHiddenInputs();
+}
+
+function profileFilterEditSchoolOptions() {
+    const kwEl = document.getElementById('editSchoolSearch');
+    const keyword = kwEl ? String(kwEl.value || '').toLowerCase().trim() : '';
+    document.querySelectorAll('#editSchoolOptionList .metro-option').forEach(function(option) {
+        const name = String(option.dataset.name || '').toLowerCase();
+        option.style.display = keyword === '' || name.includes(keyword) ? 'flex' : 'none';
+    });
+}
+
+function profileSetMetroHiddenValue() {
+    const hiddenInput = document.getElementById('editMetroStations');
+    if (!hiddenInput) return;
+    hiddenInput.value = profileEditSelectedMetros.join(', ');
+}
+
+function profileGetEditAvailableMetroLines(region) {
+    const stations = PROFILE_REGION_METRO_MAP[region] || [];
+    return Object.keys(PROFILE_METRO_LINE_STATIONS).filter(function(line) {
+        return PROFILE_METRO_LINE_STATIONS[line].some(function(station) { return stations.includes(station); });
+    });
+}
+
+function profileGetVisibleMetroStations(region) {
+    const stations = PROFILE_REGION_METRO_MAP[region] || [];
+    if (profileEditActiveMetroLine === 'all') return stations;
+    const lineStations = PROFILE_METRO_LINE_STATIONS[profileEditActiveMetroLine] || [];
+    return stations.filter(function(station) { return lineStations.includes(station); });
+}
+
+function profileRenderEditMetroOptions(region, selectedMetros) {
+    const optionList = document.getElementById('editMetroOptionList');
+    const lineFilters = document.getElementById('editMetroLineFilters');
+    if (!optionList) return;
+    const allowed = PROFILE_REGION_METRO_MAP[region] || [];
+    const incoming = Array.isArray(selectedMetros) ? selectedMetros : profileEditSelectedMetros;
+    profileEditSelectedMetros = incoming.filter(function(item) { return allowed.includes(item); });
+    const lines = profileGetEditAvailableMetroLines(region);
+    if (profileEditActiveMetroLine !== 'all' && !lines.includes(profileEditActiveMetroLine)) {
+        profileEditActiveMetroLine = 'all';
+    }
+
+    if (!region) {
+        if (lineFilters) lineFilters.innerHTML = '';
+        optionList.innerHTML = '<div class="metro-empty-state" style="padding:12px 16px;color:var(--text-hint);">请先选择所属区域</div>';
+        profileSetMetroHiddenValue();
+        profileRenderEditMetroTags();
+        return;
+    }
+
+    if (lineFilters) {
+        let html = '<button type="button" onclick="event.stopPropagation();profileSwitchEditMetroLine(\'all\')" style="border:1px solid #2d6cdf;border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;background:#2d6cdf;color:#fff;">全部</button>';
+        lines.forEach(function(line) {
+            const color = PROFILE_METRO_LINE_COLORS[line] || '#6b7280';
+            html += '<button type="button" onclick="event.stopPropagation();profileSwitchEditMetroLine(\'' + profileEscapeHtml(line) + '\')" style="border:1px solid ' + color + ';border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;background:' + color + ';color:#fff;">' + profileEscapeHtml(line) + '</button>';
+        });
+        lineFilters.innerHTML = html;
+    }
+
+    const visibleStations = profileGetVisibleMetroStations(region);
+    const kwEl = document.getElementById('editMetroSearch');
+    const keyword = kwEl ? String(kwEl.value || '').toLowerCase().trim() : '';
+    const finalStations = visibleStations.filter(function(name) { return keyword === '' || name.toLowerCase().includes(keyword); });
+
+    if (allowed.length === 0) {
+        optionList.innerHTML = '<div class="metro-empty-state" style="padding:12px 16px;color:var(--text-hint);">当前区域暂无可选地铁站</div>';
+        profileSetMetroHiddenValue();
+        profileRenderEditMetroTags();
+        return;
+    }
+    if (finalStations.length === 0) {
+        optionList.innerHTML = '<div class="metro-empty-state" style="padding:12px 16px;color:var(--text-hint);">该线路下无匹配站点</div>';
+        profileSetMetroHiddenValue();
+        profileRenderEditMetroTags();
+        return;
+    }
+
+    optionList.innerHTML = finalStations.map(function(name) {
+        const selectedClass = profileEditSelectedMetros.includes(name) ? ' selected' : '';
+        return '<div class="metro-option' + selectedClass + '" onclick="profileToggleEditMetroOption(this)" data-name="'
+            + profileEscapeHtml(name) + '"><div class="metro-option-check"></div>🚇 ' + profileEscapeHtml(name) + '</div>';
+    }).join('');
+    profileSetMetroHiddenValue();
+    profileRenderEditMetroTags();
+}
+
+function profileSwitchEditMetroLine(line) {
+    profileEditActiveMetroLine = line;
+    const region = document.getElementById('editRegion');
+    profileRenderEditMetroOptions(region ? region.value : '', profileEditSelectedMetros);
+}
+
+function profileRenderEditMetroTags() {
+    const container = document.getElementById('editMetroTags');
+    if (!container) return;
+    if (profileEditSelectedMetros.length === 0) {
+        container.innerHTML = '<span class="metro-placeholder">点击选择地铁站</span>';
+        return;
+    }
+    container.innerHTML = profileEditSelectedMetros.map(function(name, index) {
+        return '<span class="metro-tag">🚇 ' + profileEscapeHtml(name)
+            + ' <span class="metro-tag-x" onclick="event.stopPropagation();profileRemoveEditMetro(' + String(index) + ')">×</span></span>';
+    }).join('');
+}
+
+function profileToggleEditMetroDropdown() {
+    const region = document.getElementById('editRegion');
+    if (!region || !region.value) {
+        if (typeof showToast === 'function') showToast('请先选择所属区域', 'error');
+        return;
+    }
+    const dropdown = document.getElementById('editMetroDropdown');
+    if (!dropdown) return;
+    dropdown.classList.toggle('open');
+}
+
+function profileToggleEditMetroOption(el) {
+    const name = String(el.dataset.name || '').trim();
+    if (name === '') return;
+    if (profileEditSelectedMetros.includes(name)) {
+        profileEditSelectedMetros = profileEditSelectedMetros.filter(function(item) { return item !== name; });
+    } else {
+        if (profileEditSelectedMetros.length >= 5) {
+            if (typeof showToast === 'function') showToast('最多只能选择 5 个地铁站', 'error');
+            return;
+        }
+        profileEditSelectedMetros.push(name);
+    }
+    const region = document.getElementById('editRegion');
+    profileRenderEditMetroOptions(region ? region.value : '', profileEditSelectedMetros);
+}
+
+function profileRemoveEditMetro(index) {
+    if (index < 0 || index >= profileEditSelectedMetros.length) return;
+    profileEditSelectedMetros.splice(index, 1);
+    const region = document.getElementById('editRegion');
+    profileRenderEditMetroOptions(region ? region.value : '', profileEditSelectedMetros);
+}
+
+function profileFilterEditMetroOptions() {
+    const region = document.getElementById('editRegion');
+    profileRenderEditMetroOptions(region ? region.value : '', profileEditSelectedMetros);
+}
+
+function profileToggleEditFieldsByType(postType) {
+    currentEditingPostType = postType || 'rent';
+    const isSublet = currentEditingPostType === 'sublet';
+    const isRoommateSource = currentEditingPostType === 'roommate-source';
+    const isRoommateNoSource = currentEditingPostType === 'roommate-nosource';
+    const showGender = isRoommateSource || isRoommateNoSource || isSublet;
+
+    const floorWrap = document.getElementById('editFloorWrap');
+    const rentPeriodWrap = document.getElementById('editRentPeriodWrap');
+    const genderWrap = document.getElementById('editGenderWrap');
+    const needCountWrap = document.getElementById('editNeedCountWrap');
+    const remainingWrap = document.getElementById('editRemainingMonthsWrap');
+    const moveInWrap = document.getElementById('editMoveInDateWrap');
+    const renewableWrap = document.getElementById('editRenewableWrap');
+
+    if (floorWrap) floorWrap.style.display = isRoommateNoSource ? 'none' : '';
+    if (rentPeriodWrap) rentPeriodWrap.style.display = isSublet ? 'none' : '';
+    if (genderWrap) genderWrap.style.display = showGender ? '' : 'none';
+    if (needCountWrap) needCountWrap.style.display = isRoommateSource ? '' : 'none';
+    if (remainingWrap) remainingWrap.style.display = isSublet ? '' : 'none';
+    if (moveInWrap) moveInWrap.style.display = isSublet ? '' : 'none';
+    if (renewableWrap) renewableWrap.style.display = isSublet ? '' : 'none';
+}
+
+function openPostEditModal(postId) {
+    if (!postId) return;
+    const formData = new FormData();
+    formData.append('action', 'post_get_edit_data');
+    formData.append('section', 'posts');
+    formData.append('posts_filter', <?php echo json_encode($postsFilter, JSON_UNESCAPED_UNICODE); ?>);
+    formData.append('post_id', String(postId));
+
+    fetch(<?php echo json_encode(profile_section_url('posts', ['ajax' => '1']), JSON_UNESCAPED_UNICODE); ?>, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: formData,
+    })
+        .then(function(response) { return response.json(); })
+        .then(function(result) {
+            if (!result || result.success !== true || !result.data) {
+                throw new Error(result && result.message ? result.message : '加载编辑数据失败。');
+            }
+            const data = result.data;
+            openModal('postEditModal');
+
+            const editForm = document.getElementById('postEditForm');
+            if (!editForm) return;
+            editForm.reset();
+
+            const selectedSchools = Array.isArray(data.schools) ? data.schools : [];
+            const selectedMetros = Array.isArray(data.metros) ? data.metros : [];
+
+            document.getElementById('editPostId').value = String(data.id || '');
+            document.getElementById('editTypeLabel').value = PROFILE_EDIT_TYPE_LABEL_MAP[data.type] || '租房';
+            document.getElementById('editTitle').value = data.title || '';
+            document.getElementById('editPrice').value = data.price || '';
+            document.getElementById('editFloor').value = data.floor || '';
+            document.getElementById('editRentPeriod').value = data.rent_period || '';
+            document.getElementById('editRegion').value = data.region || '';
+            document.getElementById('editGenderRequirement').value = data.gender_requirement || '';
+            document.getElementById('editNeedCount').value = data.need_count || '';
+            document.getElementById('editRemainingMonths').value = data.remaining_months || '';
+            document.getElementById('editMoveInDate').value = data.move_in_date || '';
+            document.getElementById('editRenewable').value = data.renewable || '';
+            document.getElementById('editContent').value = data.content || '';
+            profileEditSelectedSchools = selectedSchools.slice();
+            profileSyncEditSchoolOptionStates();
+            profileRenderEditSchoolTags();
+            profileSyncEditSchoolHiddenInputs();
+            profileRenderEditMetroOptions(data.region || '', selectedMetros);
+            profileToggleEditFieldsByType(data.type || 'rent');
+        })
+        .catch(function(error) {
+            if (typeof showToast === 'function') {
+                showToast(error.message || '加载编辑数据失败，请稍后重试。', 'error');
+            }
+        });
 }
 
 function openProfilePostDetail(postId) {
@@ -1338,6 +2190,98 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    document.querySelectorAll('.js-post-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const postId = Number(btn.getAttribute('data-post-id') || '0');
+            if (!Number.isInteger(postId) || postId <= 0) return;
+            openPostEditModal(postId);
+        });
+    });
+
+    const autoEditPostId = <?php echo (int) $autoEditPostId; ?>;
+    if (autoEditPostId > 0) {
+        openPostEditModal(autoEditPostId);
+    }
+
+    const editRegion = document.getElementById('editRegion');
+    if (editRegion) {
+        editRegion.addEventListener('change', function() {
+            profileEditActiveMetroLine = 'all';
+            profileRenderEditMetroOptions(editRegion.value || '', profileEditSelectedMetros);
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        const schoolWrap = document.getElementById('editSchoolSelect');
+        const metroWrap = document.getElementById('editMetroSelectWrap');
+        if (schoolWrap && !schoolWrap.contains(e.target)) {
+            const schoolDropdown = document.getElementById('editSchoolDropdown');
+            if (schoolDropdown) schoolDropdown.classList.remove('open');
+        }
+        if (metroWrap && !metroWrap.contains(e.target)) {
+            const metroDropdown = document.getElementById('editMetroDropdown');
+            if (metroDropdown) metroDropdown.classList.remove('open');
+        }
+    });
+
+    profileRenderEditSchoolTags();
+    profileSyncEditSchoolHiddenInputs();
+    profileRenderEditMetroTags();
+
+    const postEditForm = document.getElementById('postEditForm');
+    if (postEditForm) {
+        postEditForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            profileSetMetroHiddenValue();
+
+            const saveBtn = document.getElementById('postEditSaveBtn');
+            if (saveBtn) saveBtn.disabled = true;
+
+            const formData = new FormData(postEditForm);
+            fetch(<?php echo json_encode(profile_section_url('posts', ['ajax' => '1']), JSON_UNESCAPED_UNICODE); ?>, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData,
+            })
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    if (!data || data.success !== true) {
+                        throw new Error(data && data.message ? data.message : '更新失败，请稍后重试。');
+                    }
+
+                    const payload = data.data || {};
+                    const postId = Number(payload.post_id || 0);
+                    if (postId > 0) {
+                        const card = document.querySelector('.my-post-card .js-post-edit-btn[data-post-id="' + String(postId) + '"]');
+                        const root = card ? card.closest('.my-post-card') : null;
+                        if (root) {
+                            const titleEl = root.querySelector('.my-post-title');
+                            const priceEl = root.querySelector('.my-post-price');
+                            const tags = root.querySelectorAll('.my-post-tags .tag');
+                            if (titleEl) titleEl.textContent = payload.title || '-';
+                            if (priceEl) priceEl.textContent = payload.price || '0';
+                            if (tags[0]) tags[0].textContent = payload.region || '-';
+                            if (tags[1]) tags[1].textContent = '🚇 ' + (payload.metro_stations || '-');
+                            if (tags[2]) tags[2].textContent = payload.school_scope || '-';
+                        }
+                    }
+
+                    closeModal('postEditModal');
+                    if (typeof showToast === 'function') {
+                        showToast(data.message || '帖子已更新。', 'success');
+                    }
+                })
+                .catch(function(error) {
+                    if (typeof showToast === 'function') {
+                        showToast(error.message || '更新失败，请稍后重试。', 'error');
+                    }
+                })
+                .finally(function() {
+                    if (saveBtn) saveBtn.disabled = false;
+                });
+        });
+    }
+
     document.querySelectorAll('.js-post-status-form').forEach(function(form) {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
@@ -1345,6 +2289,23 @@ document.addEventListener('DOMContentLoaded', function() {
             const submitBtn = form.querySelector('.js-post-status-btn');
             const nextStatusInput = form.querySelector('.js-next-status');
             if (!submitBtn || !nextStatusInput) return;
+
+            if (!form.dataset.confirmed) {
+                const isHiding = nextStatusInput.value === 'hidden';
+                openConfirmModal({
+                    title: isHiding ? '隐藏帖子' : '显示帖子',
+                    message: isHiding
+                        ? '确定要隐藏该帖子吗？隐藏后其他用户将无法看到。'
+                        : '确定要重新显示该帖子吗？',
+                    danger: isHiding,
+                    onConfirm: function() {
+                        form.dataset.confirmed = '1';
+                        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                    }
+                });
+                return;
+            }
+            delete form.dataset.confirmed;
 
             submitBtn.disabled = true;
             const formData = new FormData(form);
@@ -1406,6 +2367,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const submitBtn = form.querySelector('.js-post-delete-btn');
             if (!submitBtn) return;
+
+            if (!form.dataset.confirmed) {
+                openConfirmModal({
+                    title: '删除帖子',
+                    message: '确定要删除该帖子吗？删除后无法恢复。',
+                    onConfirm: function() {
+                        form.dataset.confirmed = '1';
+                        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                    }
+                });
+                return;
+            }
+            delete form.dataset.confirmed;
+
             submitBtn.disabled = true;
 
             const formData = new FormData(form);
@@ -1463,6 +2438,23 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.js-received-process-form').forEach(function(form) {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
+
+            if (!form.dataset.confirmed) {
+                const decisionInput = form.querySelector('[name="decision"]');
+                const decision = decisionInput ? decisionInput.value : '';
+                const isAccept = decision === 'accepted';
+                openConfirmModal({
+                    title: isAccept ? '同意申请' : '拒绝申请',
+                    message: isAccept ? '确定要同意该申请吗？' : '确定要拒绝该申请吗？',
+                    danger: !isAccept,
+                    onConfirm: function() {
+                        form.dataset.confirmed = '1';
+                        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                    }
+                });
+                return;
+            }
+            delete form.dataset.confirmed;
 
             const card = form.closest('.received-card');
             const actionsWrap = card ? card.querySelector('.app-card-actions') : null;
@@ -1591,6 +2583,9 @@ document.addEventListener('DOMContentLoaded', function() {
 .profile-actions { grid-column:1 / -1; margin-top:20px; padding-top:16px; border-top:1px solid var(--border); display:none; justify-content:flex-end; gap:12px; }
 .profile-actions.active { display:flex; }
 .profile-actions .btn { min-width:108px; height:40px; }
+.post-edit-form { padding:4px 2px; }
+.post-edit-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 16px; }
+.post-edit-grid .form-group { margin-bottom:0; }
 
 .posts-tabs { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
 .posts-tab { padding:8px 18px; border-radius:20px; font-size:13px; font-weight:600; cursor:pointer; background:var(--white); color:var(--text-secondary); border:2px solid var(--border); transition:all .2s; }
@@ -1703,6 +2698,7 @@ document.addEventListener('DOMContentLoaded', function() {
 .received-applicant { display:flex; align-items:center; gap:12px; min-width:0; }
 .received-applicant-avatar { width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,var(--primary-light),var(--secondary)); display:flex; align-items:center; justify-content:center; color:white; font-size:18px; font-weight:600; flex-shrink:0; }
 .received-applicant-name { font-size:15px; font-weight:600; color:var(--text-primary); }
+.received-applicant-meta { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .received-applicant-school { font-size:12px; color:var(--text-secondary); }
 .received-post-ref { background:var(--bg-gray); border-radius:var(--radius-md); padding:12px; margin-bottom:12px; display:flex; align-items:center; gap:10px; transition:background .2s; }
 .received-post-ref:hover { background:var(--border); }
@@ -1726,6 +2722,7 @@ document.addEventListener('DOMContentLoaded', function() {
     .profile-sidebar { width:100%; position:static; }
     .sidebar-nav-item { padding:12px 16px; }
     .profile-form { grid-template-columns: 1fr; }
+    .post-edit-grid { grid-template-columns:1fr; }
     .my-post-body { flex-direction:column; }
     .my-post-image { width:100%; height:160px; }
     .my-post-actions { flex-wrap:wrap; }
